@@ -107,4 +107,38 @@ func (c *Client) ValidateSession() bool {
 
 	cmd := exec.Command("bw", "list", "items", "--search", "", "--session", c.Session, "--raw")
 	return cmd.Run() == nil
+}
+
+// GeneratePassword generates a random password
+func (c *Client) GeneratePassword(length int, includeSpecial bool) (string, error) {
+	args := []string{"generate", "--length", fmt.Sprintf("%d", length)}
+	
+	if includeSpecial {
+		// -lusn means lowercase, uppercase, special, numbers
+		args = append(args, "-lusn", "--minSpecial", "2", "--minNumber", "2")
+	} else {
+		// -lun means lowercase, uppercase, numbers (no special)
+		args = append(args, "-lun", "--minNumber", "2")
+	}
+
+	cmd := exec.Command("bw", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("password generation failed: %w", err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// GeneratePassphrase generates a random passphrase with specified options
+func (c *Client) GeneratePassphrase(words int, includeNumber bool) (string, error) {
+	// Always include number by default
+	args := []string{"generate", "--passphrase", "--words", fmt.Sprintf("%d", words), "--separator", "empty", "--includeNumber"}
+	
+	cmd := exec.Command("bw", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("passphrase generation failed: %w", err)
+	}
+
+	return strings.TrimSpace(string(output)), nil
 } 
