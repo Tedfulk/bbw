@@ -13,19 +13,29 @@ type Client struct {
 }
 
 type Item struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Notes string `json:"notes"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Notes          string    `json:"notes"`
+	CreationDate   string    `json:"creationDate"`
+	RevisionDate   string    `json:"revisionDate"`
+	PasswordHistory []struct {
+		LastUsedDate string `json:"lastUsedDate"`
+		Password     string `json:"password"`
+	} `json:"passwordHistory"`
 	Login struct {
-			Username string `json:"username"`
-			Password string `json:"password"`
+		Username            string `json:"username"`
+		Password            string `json:"password"`
+		PasswordRevisionDate string `json:"passwordRevisionDate"`
+		Uris               []struct {
+			Uri string `json:"uri"`
+		} `json:"uris"`
 	} `json:"login"`
 }
 
 // NewClient creates a new Bitwarden client with the given session
 func NewClient(session string) *Client {
 	return &Client{
-		Session: session,
+			Session: session,
 	}
 }
 

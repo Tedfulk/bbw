@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Tedfulk/bbw/internal/bitwarden"
 	"github.com/atotto/clipboard"
@@ -96,13 +97,19 @@ func (s *SearchUI) Show() error {
 	if selectedItem.Notes != "" {
 		copyOptions = append(copyOptions, fmt.Sprintf("Notes: %s", selectedItem.Notes))
 	}
+	if len(selectedItem.Login.Uris) > 0 && selectedItem.Login.Uris[0].Uri != "" {
+		copyOptions = append(copyOptions, fmt.Sprintf("URL: %s", selectedItem.Login.Uris[0].Uri))
+	}
+
+	// Add metadata option
+	copyOptions = append(copyOptions, "Show Metadata")
 	copyOptions = append(copyOptions, "Cancel")
 
 	// Show copy options
 	action, err := pterm.DefaultInteractiveSelect.
 		WithOptions(copyOptions).
-		WithDefaultText("Choose action (↑/↓ arrows to move, enter to select)").
-		Show()
+			WithDefaultText("Choose action (↑/↓ arrows to move, enter to select)").
+			Show()
 	if err != nil {
 		return fmt.Errorf("action selection failed: %w", err)
 	}
@@ -123,6 +130,38 @@ func (s *SearchUI) Show() error {
 			return fmt.Errorf("failed to copy notes: %w", err)
 		}
 		pterm.Success.Printf("Notes for %s copied to clipboard!\n", selectedItem.Name)
+	case fmt.Sprintf("URL: %s", selectedItem.Login.Uris[0].Uri):
+		if err := clipboard.WriteAll(selectedItem.Login.Uris[0].Uri); err != nil {
+			return fmt.Errorf("failed to copy URL: %w", err)
+		}
+		pterm.Success.Printf("URL for %s copied to clipboard!\n", selectedItem.Name)
+	case "Show Metadata":
+		// Format metadata
+		var metadata strings.Builder
+		metadata.WriteString(fmt.Sprintf("Created: %s\n", selectedItem.CreationDate))
+		metadata.WriteString(fmt.Sprintf("Last Modified: %s\n", selectedItem.RevisionDate))
+		if selectedItem.Login.PasswordRevisionDate != "" {
+			metadata.WriteString(fmt.Sprintf("Password Last Modified: %s\n", selectedItem.Login.PasswordRevisionDate))
+		}
+		if len(selectedItem.PasswordHistory) > 0 {
+			metadata.WriteString(fmt.Sprintf("Password Last Used: %s\n", selectedItem.PasswordHistory[0].LastUsedDate))
+		}
+
+		// Print metadata
+		pterm.Info.Println("Metadata for", selectedItem.Name)
+		fmt.Println(metadata.String())
+
+		// Ask if user wants to copy metadata
+		copyMetadata, _ := pterm.DefaultInteractiveConfirm.
+			WithDefaultText("Copy metadata to clipboard?").
+			Show()
+		
+		if copyMetadata {
+			if err := clipboard.WriteAll(metadata.String()); err != nil {
+				return fmt.Errorf("failed to copy metadata: %w", err)
+			}
+			pterm.Success.Printf("Metadata for %s copied to clipboard!\n", selectedItem.Name)
+		}
 	}
 
 	return nil
