@@ -1,0 +1,10 @@
+# Binary
+bbw
+
+# Config files
+.env
+config.yaml
+
+# IDE specific files
+.idea
+.vscode 
