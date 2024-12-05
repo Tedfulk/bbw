@@ -3,8 +3,8 @@ package bitwarden
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 )
 
@@ -15,9 +15,10 @@ type Client struct {
 type Item struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
+	Notes string `json:"notes"`
 	Login struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+			Username string `json:"username"`
+			Password string `json:"password"`
 	} `json:"login"`
 }
 
@@ -30,20 +31,13 @@ func NewClient(session string) *Client {
 
 // Login performs the login operation and returns the session key
 func (c *Client) Login(email, password string) (string, error) {
-	cmd := exec.Command("bw", "login", email, password)
-	output, err := cmd.CombinedOutput()
+	cmd := exec.Command("bw", "login", email, password, "--raw")
+	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("login failed: %w", err)
 	}
 
-	// Extract session key using regex
-	re := regexp.MustCompile(`export BW_SESSION="([^"]+)"`)
-	matches := re.FindStringSubmatch(string(output))
-	if len(matches) < 2 {
-		return "", fmt.Errorf("could not find session key in output")
-	}
-
-	return matches[1], nil
+	return strings.TrimSpace(string(output)), nil
 }
 
 // Search searches for items in the vault
@@ -52,7 +46,16 @@ func (c *Client) Search(query string) ([]Item, error) {
 		return nil, fmt.Errorf("no session provided")
 	}
 
-	cmd := exec.Command("bw", "list", "items", "--search", query, "--session", c.Session)
+	cmd := exec.Command("bw", "list", "items", "--search", query, "--session", c.Session, "--raw")
+	
+	// Set environment variables for faster execution
+	env := os.Environ()
+	env = append(env, fmt.Sprintf("BW_SESSION=%s", c.Session))
+	cmd.Env = env
+	
+	// Ensure we're not using a shell
+	cmd.Stderr = nil
+	
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
@@ -64,21 +67,6 @@ func (c *Client) Search(query string) ([]Item, error) {
 	}
 
 	return items, nil
-}
-
-// GetPassword retrieves the password for a specific item
-func (c *Client) GetPassword(id string) (string, error) {
-	if c.Session == "" {
-		return "", fmt.Errorf("no session provided")
-	}
-
-	cmd := exec.Command("bw", "get", "password", id, "--session", c.Session)
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get password: %w", err)
-	}
-
-	return strings.TrimSpace(string(output)), nil
 }
 
 // Unlock unlocks the vault using the master password
@@ -94,18 +82,19 @@ func (c *Client) Unlock(password string) (string, error) {
 
 // Status checks if the vault is locked/unlocked
 func (c *Client) Status() (string, error) {
-	cmd := exec.Command("bw", "status")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("status check failed: %w", err)
+	// If we have a valid session, we're unlocked
+	if c.ValidateSession() {
+		return "unlocked", nil
+	}
+	return "locked", nil
+}
+
+// Add a new method to validate session
+func (c *Client) ValidateSession() bool {
+	if c.Session == "" {
+		return false
 	}
 
-	var status struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(output, &status); err != nil {
-		return "", fmt.Errorf("failed to parse status: %w", err)
-	}
-
-	return status.Status, nil
+	cmd := exec.Command("bw", "list", "items", "--search", "", "--session", c.Session, "--raw")
+	return cmd.Run() == nil
 } 

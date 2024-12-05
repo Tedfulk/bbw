@@ -19,6 +19,7 @@ func NewSearchUI(client *bitwarden.Client) *SearchUI {
 }
 
 func (s *SearchUI) Show() error {
+	
 	// Show search prompt
 	query, err := pterm.DefaultInteractiveTextInput.
 		WithMultiLine(false).
@@ -43,7 +44,18 @@ func (s *SearchUI) Show() error {
 	// Create options for selection
 	options := make([]string, len(items)+1)
 	for i, item := range items {
-		options[i] = fmt.Sprintf("%s %s", item.Name, pterm.FgGray.Sprint(fmt.Sprintf("(%s)", item.Login.Username)))
+		// Base display is just the name
+		displayStr := item.Name
+
+		// If it's a note (has notes but no login credentials), show (Note)
+		if item.Notes != "" && item.Login.Username == "" && item.Login.Password == "" {
+			displayStr = fmt.Sprintf("%s %s", displayStr, pterm.FgGray.Sprint("(Note)"))
+		} else if item.Login.Username != "" {
+			// If it has a username, show it
+			displayStr = fmt.Sprintf("%s %s", displayStr, pterm.FgGray.Sprint(fmt.Sprintf("(%s)", item.Login.Username)))
+		}
+		
+		options[i] = displayStr
 	}
 	options[len(items)] = "Cancel"
 
@@ -70,22 +82,25 @@ func (s *SearchUI) Show() error {
 		}
 	}
 
-	// Get password for selected item
+	// Get selected item
 	selectedItem := items[selectedIndex]
 
-	// Fetch password ahead of time
-	password, err := s.client.GetPassword(selectedItem.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get password: %w", err)
+	// Create options slice only with non-empty fields
+	var copyOptions []string
+	if selectedItem.Login.Username != "" {
+		copyOptions = append(copyOptions, fmt.Sprintf("Username: %s", selectedItem.Login.Username))
 	}
+	if selectedItem.Login.Password != "" {
+		copyOptions = append(copyOptions, fmt.Sprintf("Password: %s", selectedItem.Login.Password))
+	}
+	if selectedItem.Notes != "" {
+		copyOptions = append(copyOptions, fmt.Sprintf("Notes: %s", selectedItem.Notes))
+	}
+	copyOptions = append(copyOptions, "Cancel")
 
 	// Show copy options
 	action, err := pterm.DefaultInteractiveSelect.
-		WithOptions([]string{
-			fmt.Sprintf("Username: %s", selectedItem.Login.Username),
-			fmt.Sprintf("Password: %s", password),
-			"Cancel",
-		}).
+		WithOptions(copyOptions).
 		WithDefaultText("Choose action (↑/↓ arrows to move, enter to select)").
 		Show()
 	if err != nil {
@@ -98,11 +113,16 @@ func (s *SearchUI) Show() error {
 			return fmt.Errorf("failed to copy username: %w", err)
 		}
 		pterm.Success.Printf("Username for %s copied to clipboard!\n", selectedItem.Name)
-	case fmt.Sprintf("Password: %s", password):
-		if err := clipboard.WriteAll(password); err != nil {
+	case fmt.Sprintf("Password: %s", selectedItem.Login.Password):
+		if err := clipboard.WriteAll(selectedItem.Login.Password); err != nil {
 			return fmt.Errorf("failed to copy password: %w", err)
 		}
 		pterm.Success.Printf("Password for %s copied to clipboard!\n", selectedItem.Name)
+	case fmt.Sprintf("Notes: %s", selectedItem.Notes):
+		if err := clipboard.WriteAll(selectedItem.Notes); err != nil {
+			return fmt.Errorf("failed to copy notes: %w", err)
+		}
+		pterm.Success.Printf("Notes for %s copied to clipboard!\n", selectedItem.Name)
 	}
 
 	return nil
