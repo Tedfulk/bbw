@@ -10,6 +10,7 @@ import (
 
 type Client struct {
 	Session string
+	env     []string
 }
 
 type Item struct {
@@ -34,20 +35,32 @@ type Item struct {
 
 // NewClient creates a new Bitwarden client with the given session
 func NewClient(session string) *Client {
+	// Set up environment variables once
+	env := os.Environ()
+	if session != "" {
+		env = append(env, fmt.Sprintf("BW_SESSION=%s", session))
+	}
+	
 	return &Client{
-			Session: session,
+		Session: session,
+		env:     env,
 	}
 }
 
 // Login performs the login operation and returns the session key
 func (c *Client) Login(email, password string) (string, error) {
 	cmd := exec.Command("bw", "login", email, password, "--raw")
+	cmd.Env = c.env
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("login failed: %w", err)
+		return "", fmt.Errorf("login failed: %w: %s", err, string(output))
 	}
 
-	return strings.TrimSpace(string(output)), nil
+	newSession := strings.TrimSpace(string(output))
+	c.Session = newSession
+	c.env = append(os.Environ(), fmt.Sprintf("BW_SESSION=%s", newSession))
+
+	return newSession, nil
 }
 
 // Search searches for items in the vault
@@ -56,16 +69,8 @@ func (c *Client) Search(query string) ([]Item, error) {
 		return nil, fmt.Errorf("no session provided")
 	}
 
-	cmd := exec.Command("bw", "list", "items", "--search", query, "--session", c.Session, "--raw")
-	
-	// Set environment variables for faster execution
-	env := os.Environ()
-	env = append(env, fmt.Sprintf("BW_SESSION=%s", c.Session))
-	cmd.Env = env
-	
-	// Ensure we're not using a shell
-	cmd.Stderr = nil
-	
+	cmd := exec.Command("bw", "list", "items", "--search", query, "--raw")
+	cmd.Env = c.env
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
@@ -82,12 +87,17 @@ func (c *Client) Search(query string) ([]Item, error) {
 // Unlock unlocks the vault using the master password
 func (c *Client) Unlock(password string) (string, error) {
 	cmd := exec.Command("bw", "unlock", password, "--raw")
+	cmd.Env = c.env
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("unlock failed: %w", err)
 	}
 
-	return strings.TrimSpace(string(output)), nil
+	newSession := strings.TrimSpace(string(output))
+	c.Session = newSession
+	c.env = append(os.Environ(), fmt.Sprintf("BW_SESSION=%s", newSession))
+
+	return newSession, nil
 }
 
 // Status checks if the vault is locked/unlocked
@@ -99,14 +109,28 @@ func (c *Client) Status() (string, error) {
 	return "locked", nil
 }
 
-// Add a new method to validate session
+// ValidateSession checks if the session is valid using a lightweight status check
 func (c *Client) ValidateSession() bool {
 	if c.Session == "" {
 		return false
 	}
 
-	cmd := exec.Command("bw", "list", "items", "--search", "", "--session", c.Session, "--raw")
-	return cmd.Run() == nil
+	cmd := exec.Command("bw", "status")
+	cmd.Env = c.env
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	var status map[string]interface{}
+	if err := json.Unmarshal(output, &status); err != nil {
+		return false
+	}
+
+	if statusStr, ok := status["status"].(string); ok {
+		return statusStr == "unlocked"
+	}
+	return false
 }
 
 // GeneratePassword generates a random password
@@ -141,4 +165,45 @@ func (c *Client) GeneratePassphrase(words int, includeNumber bool) (string, erro
 	}
 
 	return strings.TrimSpace(string(output)), nil
+}
+
+// SyncVault syncs the vault with the server
+func (c *Client) SyncVault() error {
+	cmd := exec.Command("bw", "sync", "--session", c.Session)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("sync failed: %w", err)
+	}
+	return nil
+}
+
+// CheckUpdates checks for Bitwarden CLI updates
+func (c *Client) CheckUpdates() error {
+	cmd := exec.Command("bw", "update")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("update check failed: %w", err)
+	}
+	return nil
+}
+
+// GetStatus returns detailed status information
+func (c *Client) GetStatus() (map[string]interface{}, error) {
+	cmd := exec.Command("bw", "status")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("status check failed: %w", err)
+	}
+
+	var status map[string]interface{}
+	if err := json.Unmarshal(output, &status); err != nil {
+		return nil, fmt.Errorf("failed to parse status: %w", err)
+	}
+
+	return status, nil
+}
+
+// helper function to run commands with the client's environment
+func (c *Client) runCommand(name string, args ...string) *exec.Cmd {
+	cmd := exec.Command(name, args...)
+	cmd.Env = c.env
+	return cmd
 } 
