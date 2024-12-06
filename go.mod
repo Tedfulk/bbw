@@ -4,7 +4,6 @@ go 1.21
 
 require (
 	github.com/atotto/clipboard v0.1.4
-	github.com/eiannone/keyboard v0.0.0-20220611211555-0d226195f203
 	github.com/pterm/pterm v0.12.79
 	github.com/spf13/viper v1.18.2
 )
